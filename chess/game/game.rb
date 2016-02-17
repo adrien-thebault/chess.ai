@@ -176,6 +176,9 @@ module Chess
     #
     #  Give the valuation for the color c
     #
+    #  @todo add bad trade penalty
+    #  @todo add elephantiasis effect
+    #
     #  @return Integer
     #  @scope public
     #
@@ -183,7 +186,7 @@ module Chess
     CENTIPAWN = 1
 
     PIECE_VALUE = {
-      Chess::King => 0,
+      Chess::King => 0*CENTIPAWN,
       Chess::Pawn => 100*CENTIPAWN,
       Chess::Bishop => 350*CENTIPAWN,
       Chess::Knight => 350*CENTIPAWN,
@@ -191,41 +194,154 @@ module Chess
       Chess::Queen => 1000*CENTIPAWN
     }
 
+    TRAPPED_PIECES = {
+      Chess::Knight => {
+        PLAYER_WHITE => ['a1', 'h1', 'a2', 'h2'],
+        PLAYER_BLACK => ['a8', 'h8', 'a7', 'h7']
+      }
+    }
+
+    TRAPPED_MALUS = 0.5*PIECE_VALUE[Chess::Pawn]
+    BISHOP_PAIR_BONUS = 0.5*PIECE_VALUE[Chess::Pawn]
+    ROOK_PAIR_MALUS = 0.5*PIECE_VALUE[Chess::Pawn]
+    KNIGHT_PAIR_MALUS = 0.5*PIECE_VALUE[Chess::Pawn]
+    RETURNING_BISHOP_MALUS = 0.5*PIECE_VALUE[Chess::Pawn]
+    NO_PAWN_MALUS = 2*PIECE_VALUE[Chess::Pawn]
+
+    LESS_PAWN_KNIGHT_VALUE_BONUS = 0.5
+    LESS_PAWN_ROOK_VALUE_BONUS = 0.5
+
+    PAWN_SHIELD_BONUS = 2*PIECE_VALUE[Chess::Pawn]
+
     PIECE_IN_DANGER = 3
     MOBILITY = 0.05
 
-    CHECKMATE = 99999
-    CHECK = 300
+    CHECKMATE = 99999*CENTIPAWN
+    CHECK = 500*CENTIPAWN
 
     def valuation(c)
 
       valuation = 0
-      material_balance = 0
+      material_valuation = 0
 
+      piece_number = {
+        Chess::King => 0,
+        Chess::Pawn => 0,
+        Chess::Bishop => 0,
+        Chess::Knight => 0,
+        Chess::Rook => 0,
+        Chess::Queen => 0
+      }
+
+      # Bonus if the opponent is check or checkmate
+      # Malus if we are check or checkmate
+
+      opponent_checkmate, opponent_check, we_checkmate, we_check = 0, 0, 0, 0
+      check_checkmate_thread = Thread.new {
+
+        opponent_checkmate += CHECKMATE if checkmate?((c+1)%2)
+        opponent_check += CHECK if check?(nil, nil, (c+1)%2)
+
+        we_checkmate -= CHECKMATE if checkmate?(c)
+        we_check -= CHECK if check?(nil, nil, c)
+
+      }
+
+      pieces_threads = []
       @chessboard.each do |k,piece|
         if !piece.nil? && piece.color == c
 
-            # Material balance
-            material_balance += PIECE_VALUE[piece.class]
+          pieces_threads.push(Thread.new {
+
+            # Count the number of each type of piece
+            piece_number[piece.class] += 1
 
             # Malus if piece is in danger !
-            valuation -= PIECE_LOSS*piece.value if piece.in_danger?(self)
+            valuation -= PIECE_IN_DANGER*PIECE_VALUE[piece.class] if piece.in_danger?(self)
+
+            # Malus if piece is trapped
+            valuation -= TRAPPED_MALUS if TRAPPED_PIECES.has_key?(piece.class) && TRAPPED_PIECES[piece.class].include?(k)
 
             # Bonus if piece (!= pawn) can move
-            valuation += MOBILITY_GAIN*piece.possible_moves(self).length*piece.value if piece.class != Chess::Pawn
+            valuation += MOBILITY*piece.possible_moves(self).length*PIECE_VALUE[piece.class] if piece.class != Chess::Pawn
+
+            # Decrease the value of "rook" pawns
+            piece_number[piece.class] -= 0.5 if piece.class == Chess::Pawn && k[0] == 'a' || k[0] == 'h'
+
+            # Increase the value of "central" pawns
+            piece_number[piece.class] += 0.5 if piece.class == Chess::Pawn && k[0] == 'd' || k[0] == 'e'
+
+            # Malus for a Bishop which is on its original position
+            valuation -= RETURNING_BISHOP_MALUS if piece.class == Chess::Bishop && ((c == PLAYER_WHITE && ['c1','f1'].include?(k)) || (c == PLAYER_BLACK && ['c8','f8'].include?(k)))
+
+            # Bonus if king has a pawn shield
+            if piece.class == Chess::King
+
+              pawn_shield = true
+              pawn_positions = [
+                [(k[0].chr.ord-1).chr + (k[1].to_i-1).to_s,
+                (k[0].chr.ord-1).chr + (k[1].to_i-2).to_s],
+                [k[0] + (k[1].to_i-1).to_s,
+                k[0] + (k[1].to_i-2).to_s],
+                [(k[0].chr.ord+1).chr + (k[1].to_i-1).to_s,
+                (k[0].chr.ord+1).chr + (k[1].to_i-2).to_s],
+                [(k[0].chr.ord-1).chr + (k[1].to_i+1).to_s,
+                (k[0].chr.ord-1).chr + (k[1].to_i+2).to_s],
+                [k[0] + (k[1].to_i+1).to_s,
+                k[0] + (k[1].to_i+2).to_s],
+                [(k[0].chr.ord+1).chr + (k[1].to_i+1).to_s,
+                (k[0].chr.ord+1).chr + (k[1].to_i+2).to_s],
+              ]
+
+              pawn_positions.each do |pos|
+                if ((pos[0][0].chr.ord) >= 'a'.chr.ord && (pos[0][0].chr.ord) <= 'h'.chr.ord && pos[0][1].to_i >= 1 && pos[0][1].to_i <= 8) && ((pos[1][0].chr.ord) >= 'a'.chr.ord && (pos[1][0].chr.ord) <= 'h'.chr.ord && pos[1][1].to_i >= 1 && pos[1][1].to_i <= 8)
+                  pawn_shield = pawn_shield && ((!@chessboard[pos[0]].nil? && @chessboard[pos[0]].class == Chess::Pawn) || (!@chessboard[pos[1]].nil? && @chessboard[pos[1]].class == Chess::Pawn))
+                end
+              end
+
+              valuation += PAWN_SHIELD_BONUS if pawn_shield
+
+            end
+
+          })
 
         end
       end
 
-      # Bonus if the opponent is check or checkmate
-      valuation += CHECKMATE if checkmate?((c+1)%2)
-      valuation += CHECK if check?(nil, nil, (c+1)%2)
+      pieces_threads.each do |thread|
+        thread.join
+      end
 
-      # Malus if we are check or checkmate
-      valuation -= CHECKMATE if checkmate?(c)
-      valuation -= CHECK if check?(nil, nil, c)
+      # Knights gain value the less pawn there are
+      piece_number[Chess::Knight] *= (1 + (1 - (piece_number[Chess::Pawn]/8)))*LESS_PAWN_KNIGHT_VALUE_BONUS
 
-      (valuation += material_balance)
+      # Rooks gain value the less pawn there are
+      piece_number[Chess::Rook] *= (1 + (1 - (piece_number[Chess::Pawn]/8)))*LESS_PAWN_ROOK_VALUE_BONUS
+
+      # Material valuation
+      piece_number.each do |piece, number|
+        material_valuation += number*PIECE_VALUE[piece]
+      end
+
+      # Bonus if we have a bishop pair
+      valuation += BISHOP_PAIR_BONUS if piece_number[Chess::Bishop] == 2
+
+      # Malus if we have a rook pair (?)
+      valuation -= ROOK_PAIR_MALUS if piece_number[Chess::Rook] == 2
+
+      # Malus if we have a knight pair (?)
+      valuation -= KNIGHT_PAIR_MALUS if piece_number[Chess::Knight] == 2
+
+      # Malus if we have no pawn
+      valuation -= NO_PAWN_MALUS if piece_number[Chess::Pawn] == 0
+
+      # Malus if "if one side has no pawns left, it needs the equivalent of +4 pawns more material to win" no respected
+      valuation -= INSUFFICIENT_MATERIAL_MALUS if piece_number[Chess::Pawn] == 0 && material_valuation < 4*PIECE_VALUE[Chess::Pawn]
+
+      valuation += material_valuation
+
+      check_checkmate_thread.join
+      (valuation + opponent_checkmate + opponent_check + we_checkmate + we_check)
 
     end
 
@@ -237,7 +353,7 @@ module Chess
     #  @scope public
     #
 
-    def material_balance(c)
+    def material_valuation(c)
 
       material_balance = 0
       @chessboard.each do |k,piece|

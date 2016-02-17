@@ -26,6 +26,7 @@ module Chess
     MINMAX = 0
       MIN = 0
       MAX = 1
+
     ALPHABETA = 1
       INF = 999999
 
@@ -48,7 +49,7 @@ module Chess
       @color = color
       @boards = {}
 
-      @actual_hash = chessboard_hash @game.chessboard
+      @actual_hash = chessboard_hash(@game.chessboard)
       @boards[@actual_hash] = {
         'chessboard_hash' => @actual_hash,
         'game_hash' => @game.hash,
@@ -86,7 +87,7 @@ module Chess
       until depth > MAX_DEPTH || (@game.round_end_time - Time.now).to_f < (compute_time.to_f*10)
 
         print "\n" << '[INFO]' << "\t|\t" << 'time left : ' + (@game.round_end_time - Time.now).to_s
-        compute_time = Time.now
+        beginning = Time.now
 
         if algo == MINMAX
           minmax(depth)
@@ -94,11 +95,11 @@ module Chess
           alphabeta(depth)
         end
 
-        print "\n" << '[INFO]' << "\t|\t" << 'Best move has a valuation of ' + @boards[@actual_hash]['valuation_max'].to_s
+        print "\n" << '[INFO]' << "\t|\t" << 'Best move has a valuation of ' + @boards[@actual_hash]['valuation'].to_s
 
         move = nil
         @boards[@actual_hash]['children'].each do |mv,child|
-          if (!@boards[@actual_hash]['valuation_max'].nil? && @boards[child]['valuation'] == @boards[@actual_hash]['valuation_max']) || (@boards[@actual_hash]['valuation_max'].nil? && @boards[child]['valuation'] == @boards[@actual_hash]['valuation'])
+          if (algo == MINMAX && @boards[child]['valuation'] == @boards[@actual_hash]['valuation']) || (algo == ALPHABETA && @boards[child]['valuation_min'] == @boards[@actual_hash]['valuation'])
             move = mv
             break
           end
@@ -106,7 +107,7 @@ module Chess
 
         print "\n" << '[INFO]' << "\t|\t" << 'move = ' << move.to_s + "\n"
 
-        compute_time = (Time.now - compute_time).to_f
+        compute_time += (Time.now - beginning).to_f
         depth += 1
 
       end
@@ -194,7 +195,7 @@ module Chess
         @nb_children = 0 if @nb_children == []
 
         print "\n" << '[INFO]' << "\t|\t" << 'alphabeta with limit = ' << limit.to_s
-        alphabeta(limit, depth, @boards[@actual_hash], -INF, INF, MAX)
+        @boards[@actual_hash]['valuation'] = alphabeta(limit, depth, @boards[@actual_hash], -INF, INF, MAX)
 
         print "\n" << '[INFO]' << "\t|\t|--> " << 'Went through ' + @nb_children.to_s + ' possibilities'
 
@@ -210,7 +211,7 @@ module Chess
           end
 
           if min_or_max == MIN && node['valuation_min_depth'] >= (limit-depth)
-            valuation = node['valuation_min']
+            node['valuation_min']
           elsif min_or_max == MIN
 
             valuation = INF
@@ -227,7 +228,7 @@ module Chess
             (node['valuation_min'] = valuation)
 
           elsif min_or_max == MAX && node['valuation_max_depth'] >= (limit-depth)
-            valuation = node['valuation_max']
+            node['valuation_max']
           else
 
             valuation = -INF
@@ -247,12 +248,18 @@ module Chess
 
         else
 
-          if (min_or_max == MIN && node['valuation_min_depth'] == -1) || (min_or_max == MAX && node['valuation_max_depth'] == -1)
-            node['valuation']
+          if min_or_max == MIN && node['valuation_min_depth'] == -1
+            (node['valuation_min'] = node['valuation'])
+
+          elsif min_or_max == MAX && node['valuation_max_depth'] == -1
+            (node['valuation_max'] = node['valuation'])
+
           elsif min_or_max == MIN && node['valuation_min_depth'] > -1
             node['valuation_min']
+
           elsif min_or_max == MAX && node['valuation_man_depth'] > -1
             node['valuation_max']
+
           end
 
         end
@@ -308,16 +315,15 @@ module Chess
               if child.move(from, to)
 
                 child_chessboard_hash = chessboard_hash child.chessboard
-
                 @boards[parent_chessboard_hash]['children'].push([[from,to], child_chessboard_hash])
 
-                unless @boards.has_key? parent_chessboard_hash
+                unless @boards.has_key? child_chessboard_hash
 
                   @boards[child_chessboard_hash] = {
                     'chessboard_hash' => child_chessboard_hash,
                     'game_hash' => child.hash,
                     'children' => [],
-                    'valuation' => child.valuation(@color)-child.valuation((@color+1)%2),
+                    'valuation' => child.valuation(@color),
                     'valuation_min' => nil,
                     'valuation_min_depth' => -1,
                     'valuation_max' => nil,

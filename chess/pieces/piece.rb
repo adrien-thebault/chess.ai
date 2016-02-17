@@ -80,6 +80,26 @@ module Chess
 
     ##
     #
+    #  Returns the number of pieces endangered by this one
+    #
+    #  @return Integer
+    #  @scope public
+    #
+
+    def endangered_pieces(game)
+
+      res = 0
+
+      possible_moves(game).each do |move|
+        res += 1 unless game.chessboard[move].nil? || game.chessboard[move].color == @color
+      end
+
+      res
+
+    end
+
+    ##
+    #
     #  Returns line increment to go forward
     #
     #  @return Integer

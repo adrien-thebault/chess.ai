@@ -31,7 +31,7 @@ module Chess
 
         # Forward*2
         [@col + (@line.to_i+2*forward).to_s,
-          ((@color == COLOR_WHITE && @line.to_i == 2) || (@color == COLOR_BLACK && @line.to_i == 7)) && game.chessboard[@col + (@line.to_i+2*forward).to_s].nil?],
+          ((@color == COLOR_WHITE && @line.to_i == 2) || (@color == COLOR_BLACK && @line.to_i == 7)) && game.chessboard[@col + (@line.to_i+2*forward).to_s].nil? && game.chessboard[@col + (@line.to_i+forward).to_s].nil?],
 
         # Forward+Right
         [(@col.chr.ord+1).chr + (@line.to_i+forward).to_s,
