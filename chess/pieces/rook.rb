@@ -1,74 +1,51 @@
-##
-#  @author Adrien Thébault <me@adrien-thebault.fr>
-#
-
-#  --
-
-module Chess
+module Chess::Pieces
 
   ##
+  #
   #  Rook
+  #  @author Adrien Thébault <me@adrien-thebault.fr>
+  #
 
-  class Rook < Chess::Piece
+  module Rook
 
-    ##
-    #
-    #  Gives all the possibles moves for this piece in game
-    #
-    #  @return Array
-    #  @scope public
-    #
+    def self.possible_moves(game,pos)
 
-    def possible_moves(game)
+      color, ennemy = game[:chessboard][pos[0]][pos[1]]&0b1000, Chess::Game.ennemy(game[:chessboard][pos[0]][pos[1]]&0b1000)
+      offset, res, finished_top, finished_bottom, finished_left, finished_right = 0, [], false, false, false, false
 
-      res = []
+      loop do
 
-      # To the right!
-      for col in ((@col.chr.ord+1).chr..'h')
-        if game.chessboard[col + @line].nil?
-          res.push(col + @line)
-        elsif game.chessboard[col + @line].color != @color
-          res.push(col + @line)
-          break
-        else
-          break
+        unless finished_top
+
+          res.push([pos[0]+offset, pos[1]]) if game[:chessboard][pos[0]+offset][pos[1]].nil? || game[:chessboard][pos[0]+offset][pos[1]]&0b1000 == ennemy
+          finished_top = true if (!game[:chessboard][pos[0]+offset][pos[1]].nil? && offset > 0) || pos[0]+offset == 7
+
         end
-      end
 
-      # To the left!
-      for col in ('a'..(@col.chr.ord-1).chr).to_a.reverse
-        if game.chessboard[col + @line].nil?
-          res.push(col + @line)
-        elsif game.chessboard[col + @line].color != @color
-          res.push(col + @line)
-          break
-        else
-          break
-        end
-      end
+        unless finished_bottom
 
-      # To the top!
-      for line in (@line.to_i+1..8)
-        if game.chessboard[@col + line.to_s].nil?
-          res.push(@col + line.to_s)
-        elsif game.chessboard[@col + line.to_s].color != @color
-          res.push(@col + line.to_s)
-          break
-        else
-          break
-        end
-      end
+          res.push([pos[0]-offset, pos[1]]) if game[:chessboard][pos[0]-offset][pos[1]].nil? || game[:chessboard][pos[0]-offset][pos[1]]&0b1000 == ennemy
+          finished_bottom = true if (!game[:chessboard][pos[0]-offset][pos[1]].nil? && offset > 0) || pos[0]-offset == 0
 
-      # To the bottom!
-      for line in (1..@line.to_i-1).to_a.reverse
-        if game.chessboard[@col + line.to_s].nil?
-          res.push(@col + line.to_s)
-        elsif game.chessboard[@col + line.to_s].color != @color
-          res.push(@col + line.to_s)
-          break
-        else
-          break
         end
+
+        unless finished_left
+
+          res.push([pos[0], pos[1]-offset]) if game[:chessboard][pos[0]][pos[1]-offset].nil? || game[:chessboard][pos[0]][pos[1]-offset]&0b1000 == ennemy
+          finished_left = true if (!game[:chessboard][pos[0]][pos[1]-offset].nil? && offset > 0) || pos[1]-offset == 0
+
+        end
+
+        unless finished_right
+
+          res.push([pos[0], pos[1]+offset]) if game[:chessboard][pos[0]][pos[1]+offset].nil? || game[:chessboard][pos[0]][pos[1]+offset]&0b1000 == ennemy
+          finished_right = true if (!game[:chessboard][pos[0]][pos[1]+offset].nil? && offset > 0) || pos[1]+offset == 7
+
+        end
+
+        break if finished_top && finished_bottom && finished_left && finished_right
+        offset += 1
+
       end
 
       res

@@ -1,39 +1,15 @@
-##
-#  @author Adrien Thébault <me@adrien-thebault.fr>
-#
-
-#  --
-
-module Chess
+module Chess::Pieces
 
   ##
+  #
   #  Queen
+  #  @author Adrien Thébault <me@adrien-thebault.fr>
+  #
 
-  class Queen < Chess::Piece
+  module Queen
 
-    ##
-    #
-    #  Gives all the possibles moves for this piece in game
-    #
-    #  @return Array
-    #  @scope public
-    #
-
-    def possible_moves(game)
-
-      rook = Chess::Rook.new @position
-      bishop = Chess::Bishop.new @position
-
-      if @color == COLOR_WHITE
-        rook.white!
-        bishop.white!
-      else
-        rook.black!
-        bishop.black!
-      end
-
-      rook.possible_moves(game) + bishop.possible_moves(game)
-
+    def self.possible_moves(game,pos)
+      Chess::Pieces::Bishop.possible_moves(game,pos) + Chess::Pieces::Rook.possible_moves(game,pos)
     end
 
   end

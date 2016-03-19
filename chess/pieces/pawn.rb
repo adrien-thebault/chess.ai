@@ -1,53 +1,24 @@
-##
-#  @author Adrien Thébault <me@adrien-thebault.fr>
-#
-
-#  --
-
-module Chess
+module Chess::Pieces
 
   ##
+  #
   #  Pawn
+  #  @author Adrien Thébault <me@adrien-thebault.fr>
+  #  @todo add "En passant"
+  #
 
-  class Pawn < Chess::Piece
+  module Pawn
 
-    ##
-    #
-    #  Gives all the possibles moves for this piece in game
-    #
-    #  @return Array
-    #  @scope public
-    #
+    def self.possible_moves(game,pos)
 
-    def possible_moves(game)
+      color, ennemy = game[:chessboard][pos[0]][pos[1]]&0b1000, Chess::Game.ennemy(game[:chessboard][pos[0]][pos[1]]&0b1000)
+      forward, res = (color == Chess::Game::WHITE) ? 1 : -1, []
 
-      res = []
-
-      moves = [
-
-        # Forward
-        [@col + (@line.to_i+forward).to_s,
-          (((@line.to_i+forward) <= 8) && ((@line.to_i+forward) >= 1)) && game.chessboard[@col + (@line.to_i+forward).to_s].nil?],
-
-        # Forward*2
-        [@col + (@line.to_i+2*forward).to_s,
-          ((@color == COLOR_WHITE && @line.to_i == 2) || (@color == COLOR_BLACK && @line.to_i == 7)) && game.chessboard[@col + (@line.to_i+2*forward).to_s].nil? && game.chessboard[@col + (@line.to_i+forward).to_s].nil?],
-
-        # Forward+Right
-        [(@col.chr.ord+1).chr + (@line.to_i+forward).to_s,
-          (((@line.to_i+forward) <= 8) & ((@line.to_i+forward) >= 1)) && @col != 'h' && !game.chessboard[(@col.chr.ord+1).chr + (@line.to_i+forward).to_s].nil? && game.chessboard[(@col.chr.ord+1).chr + (@line.to_i+forward).to_s].class.name != 'King' && game.chessboard[(@col.chr.ord+1).chr + (@line.to_i+forward).to_s].color != @color],
-
-        # Forward+Left
-        [(@col.chr.ord-1).chr + (@line.to_i+forward).to_s,
-          (((@line.to_i+forward) <= 8) & ((@line.to_i+forward) >= 1)) && @col != 'a' && !game.chessboard[(@col.chr.ord-1).chr + (@line.to_i+forward).to_s].nil? && game.chessboard[(@col.chr.ord-1).chr + (@line.to_i+forward).to_s].class.name != 'King' && game.chessboard[(@col.chr.ord-1).chr + (@line.to_i+forward).to_s].color != @color],
-
-        # @TODO : Add "En passant"
-
-      ]
-
-      moves.each do |move|
-        res.push move[0] if move[1]
-      end
+      res.push([pos[0]+1*forward, pos[1]]) unless pos[0]+1*forward < 0 || pos[0]+1*forward > 7 || !game[:chessboard][pos[0]+1*forward][pos[1]].nil?
+      res.push([pos[0]+2*forward, pos[1]]) if ((color == Chess::Game::WHITE && pos[0] == 1)||(color == Chess::Game::BLACK && pos[0] == 6)) && game[:chessboard][pos[0]+1*forward][pos[1]].nil? && game[:chessboard][pos[0]+2*forward][pos[1]].nil?
+      res.push([pos[0]+1*forward, pos[1]+1]) unless pos[0]+1*forward < 0 || pos[0]+1*forward > 7 || pos[1]+1 < 0 || pos[1]+1 > 7 || game[:chessboard][pos[0]+1*forward][pos[1]+1].nil? || game[:chessboard][pos[0]+1*forward][pos[1]+1]&0b1000 == color
+      res.push([pos[0]+1*forward, pos[1]-1]) unless pos[0]+1*forward < 0 || pos[0]+1*forward > 7 || pos[1]-1 < 0 || pos[1]-1 > 7 || game[:chessboard][pos[0]+1*forward][pos[1]-1].nil? || game[:chessboard][pos[0]+1*forward][pos[1]-1]&0b1000 == color
+      res.push(pos) if ((color == Chess::Game::WHITE && pos[0] == 7)||(color == Chess::Game::BLACK && pos[0] == 0))
 
       res
 

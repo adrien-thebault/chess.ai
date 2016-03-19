@@ -1,60 +1,32 @@
-##
-#  @author Adrien Thébault <me@adrien-thebault.fr>
-#
-
-#  --
-
-module Chess
+module Chess::Pieces
 
   ##
+  #
   #  King
+  #  @author Adrien Thébault <me@adrien-thebault.fr>
+  #
 
-  class King < Chess::Piece
+  module King
 
-    ##
-    #
-    #  Gives all the possibles moves for this piece in game
-    #
-    #  @return Array
-    #  @scope public
-    #
+    def self.possible_moves(game,pos)
 
-    def possible_moves(game)
+      color, ennemy = game[:chessboard][pos[0]][pos[1]]&0b1000, Chess::Game.ennemy(game[:chessboard][pos[0]][pos[1]]&0b1000)
+      tmp, res = [
+        [pos[0],pos[1]+1],
+        [pos[0],pos[1]-1],
+        [pos[0]+1,pos[1]],
+        [pos[0]-1,pos[1]],
+        [pos[0]+1,pos[1]+1],
+        [pos[0]-1,pos[1]-1],
+        [pos[0]+1,pos[1]-1],
+        [pos[0]-1,pos[1]+1]
+      ], []
 
-      res = [
-
-        # Forward
-        @col + (@line.to_i+forward).to_s,
-
-        # Backward
-        @col + (@line.to_i+backward).to_s,
-
-        # Left + Backward
-        (@col.chr.ord-1).chr + (@line.to_i+backward).to_s,
-
-        # Left
-        (@col.chr.ord-1).chr + @line.to_s,
-
-        # Left+Forward
-        (@col.chr.ord-1).chr + (@line.to_i+forward).to_s,
-
-        # Right+Forward
-        (@col.chr.ord+1).chr + (@line.to_i+forward).to_s,
-
-        # Right
-        (@col.chr.ord+1).chr + @line.to_s,
-
-        # Right + Backward
-        (@col.chr.ord+1).chr + (@line.to_i+backward).to_s
-
-      ]
-
-      moves = []
-      res.each do |move|
-        moves.push move if (move[0].chr.ord) >= 'a'.chr.ord && (move[0].chr.ord) <= 'h'.chr.ord && move[1].to_i >= 1 && move[1].to_i <= 8 && (game.chessboard[move].nil? || game.chessboard[move].color != @color)
+      tmp.each do |move|
+        res.push(move) unless (move[0] < 0 || move[0] > 7 || move[1] < 0 || move[1] > 7 ) || (!game[:chessboard][move[0]][move[1]].nil? && game[:chessboard][move[0]][move[1]]&0b1000 == color)
       end
 
-      moves
+      res
 
     end
 
