@@ -8,6 +8,7 @@
 /** Dependencies */
 
 #include <stdbool.h>
+#include <string.h>
 
 #include "../game.h"
 #include "../bishop/bishop.h"
@@ -19,7 +20,7 @@
 *
 */
 
-void ChessGame_Queen_PossibleMoves(game *g, unsigned char pos[2], unsigned char possible_moves[POSSIBLE_MOVES_SIZE][2], unsigned char *possible_moves_length) {
+void ChessGame_Queen_PossibleMoves(game *g, unsigned char pos[2], unsigned char possible_moves[POSSIBLE_MOVES_SIZE][2][2], unsigned char *possible_moves_length) {
 
   ChessGame_Bishop_PossibleMoves(g, pos, possible_moves, possible_moves_length);
   ChessGame_Rook_PossibleMoves(g, pos, possible_moves, possible_moves_length);

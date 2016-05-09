@@ -8,6 +8,7 @@
 /** Dependencies */
 
 #include <stdbool.h>
+#include <string.h>
 #include "../game.h"
 
 /**
@@ -16,7 +17,7 @@
 *
 */
 
-void ChessGame_Knight_PossibleMoves(game *g, unsigned char pos[2], unsigned char possible_moves[POSSIBLE_MOVES_SIZE][2], unsigned char *possible_moves_length) {
+void ChessGame_Knight_PossibleMoves(game *g, unsigned char pos[2], unsigned char possible_moves[POSSIBLE_MOVES_SIZE][2][2], unsigned char *possible_moves_length) {
 
   signed char offset_line[8] = {1,1,-1,-1,2,-2,2,-2};
   signed char offset_col[8] = {2,-2,2,-2,1,1,-1,-1};
@@ -30,8 +31,9 @@ void ChessGame_Knight_PossibleMoves(game *g, unsigned char pos[2], unsigned char
 
     if(line > -1 && line < 8 && col > -1 && col < 8 && (g->chessboard[line][col] == -1 || (g->chessboard[line][col] & MASK_PLAYER) != player)) {
 
-      possible_moves[*possible_moves_length][0] = line;
-      possible_moves[*possible_moves_length][1] = col;
+      memcpy(possible_moves[*possible_moves_length][0], pos, 2*sizeof(unsigned char));
+      possible_moves[*possible_moves_length][1][0] = line;
+      possible_moves[*possible_moves_length][1][1] = col;
 
       (*possible_moves_length)++;
 

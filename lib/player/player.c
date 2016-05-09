@@ -12,18 +12,13 @@
 #include <stdbool.h>
 #include <time.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 #include "../game/game.h"
 #include "../output/output.h"
 #include "./player.h"
-
-/** Global variables */
-
-static node *current;
-static unsigned char player;
-static unsigned int nb_children;
-static unsigned char best_move[2][2];
-static unsigned char time_left;
 
 /**
 *
@@ -31,57 +26,63 @@ static unsigned char time_left;
 *
 */
 
-void ChessPlayer_Play(game *g, unsigned char p, unsigned char move[2][2]) {
+void ChessPlayer_Play(game *g, unsigned char player, unsigned char move[2][2], unsigned char algorithm) {
 
-  /** Initialisation */
-
-  player = p;
-  time_left = g->round_end_time - time(NULL);
-
-  current = malloc(sizeof(node));
-  current->game = g;
-  current->nb_children = 0;
-  current->valuation = 0;
-
-  /** Let's play! */
-
-  ChessPlayer_IDAlphaBeta();
-  memcpy(move, best_move, 4*sizeof(unsigned char));
+  if(algorithm == ALPHABETA || algorithm == MTDF || algorithm == PVS) ChessPlayer_ID(g, move, player, algorithm);
 
 }
 
 /**
 *
-*  Iterative Deepening Alpha/Beta
-*  @TODO sort children
+*  Iterative Deepening
 *
 */
 
-void ChessPlayer_IDAlphaBeta() {
+void ChessPlayer_ID(game *g, unsigned char move[2][2], unsigned char p, unsigned char algorithm) {
 
-  printf(INFO("Iterative deepening AlphaBeta with MAX_DEPTH = %d"), MAX_DEPTH);
-  unsigned char depth = 1; nb_children = 0;
+  char* algo;
+  unsigned char depth = 1;
+  unsigned long long int visited = 0;
+  float valuation = ChessGame_Valuation(g, p);
 
-  while(depth <= MAX_DEPTH) {
+  if(algorithm == ALPHABETA) algo = "AlphaBeta";
+  else if(algorithm == MTDF) algo = "MTD(f)";
+  else if(algorithm == PVS) algo = "PVSplit";
 
-    printf(INFO("|\tTime left : %hhus"), time_left);
+  printf("\n");
+  printf(INFO("Iterative deepening %s with MAX_DEPTH = %d"), algo, MAX_DEPTH);
+  printf(INFO("Actual board has a valuation of %.2f"), valuation);
+
+  while(depth <= MAX_DEPTH && g->round_end_time > time(NULL)) {
+
+    printf(INFO("|\tTime left : %hhus"), (unsigned char)(g->round_end_time-time(NULL)));
     printf(INFO("|\tDepth : %hhu"), depth);
+    printf(INFO("|\t|\t%s with limit = %d"), algo, depth);
 
-    current->valuation = ChessPlayer_AlphaBeta(depth, 1, current, -INF, INF, MAX);
-    printf(INFO("|\t|\tWent through %u possibilities"), nb_children);
-    printf(INFO("|\tBest move has a valuation of %.2f"), current->valuation);
+    if(algorithm == ALPHABETA) {
 
-    for(unsigned int i = 0; i < current->nb_children; i++) {
-      if(current->children[i]->node->valuation == current->valuation) {
-        best_move[0][0] = current->children[i]->from[0];
-        best_move[0][1] = current->children[i]->from[1];
-        best_move[1][0] = current->children[i]->to[0];
-        best_move[1][1] = current->children[i]->to[1];
-        break;
-      }
-    }
+      /** Reset valuation */
+      g->valuation = -1;
+      ChessGame_Valuation(g, p);
 
-    printf(INFO("|\tMove : %c%hhu -> %c%hhu"), best_move[0][1]+97, best_move[0][0]+1, best_move[1][1]+97, best_move[1][0]+1);
+      /** AlphaBeta */
+      valuation = ChessPlayer_AlphaBeta(depth, 0, g, p, move, &visited, -INF, INF, MAX);
+
+    } else if(algorithm == PVS) {
+
+      /** Reset valuation */
+      g->valuation = -1;
+      ChessGame_Valuation(g, p);
+
+      /** AlphaBeta */
+      valuation = ChessPlayer_PVSplit(depth, 0, g, p, move, &visited, -INF, INF, MAX);
+
+    } else valuation = ChessPlayer_MTDF(g, p, valuation, depth, move, &visited);
+
+    printf(INFO("|\t|\tWent through %llu possibilities"), visited);
+    printf(INFO("|\tBest move has a valuation of %.2f"), valuation);
+
+    printf(INFO("|\tMove : %c%hhu -> %c%hhu"), move[0][1]+97, move[0][0]+1, move[1][1]+97, move[1][0]+1);
     printf(INFO("|"));
     depth++;
 
@@ -91,106 +92,301 @@ void ChessPlayer_IDAlphaBeta() {
 
 /**
 *
+*  MTD-f
+*  /!\ Not really functionnal as it needs properly working transposition tables
+*
+*/
+
+float ChessPlayer_MTDF(game* g, unsigned char player, float f, unsigned char depth, unsigned char move[2][2], unsigned long long int *visited) {
+
+  float lower = -INF, upper = +INF, beta;
+  while(lower < upper) {
+
+    beta = (f > (lower + 1)) ? f : (lower + 1);
+    f = ChessPlayer_PVSplit(depth, 0, g, player, move, visited, beta - 1, beta, MAX);
+
+    if(f < beta) upper = f;
+    else lower = f;
+
+  }
+
+  return f;
+
+}
+
+/**
+*
 *  AlphaBeta
 *
 */
 
-int ChessPlayer_AlphaBeta(unsigned char limit, unsigned char depth, node *n, int alpha, int beta, unsigned char min_or_max) {
+float ChessPlayer_AlphaBeta(unsigned char limit, unsigned char depth, game *g, unsigned char player, unsigned char move[2][2], unsigned long long int *visited, float alpha, float beta, unsigned char min_or_max) {
 
-  float valuation, res;
-  if(depth == 1) printf(INFO("|\t|\tAlphaBeta with limit = %d"), limit);
+  if(depth < limit) {
 
-  if(depth <= limit) {
+    float valuation, res; signed char piece; bool promotion;
+    unsigned char possible_moves[POSSIBLE_MOVES_SIZE][2][2], possible_moves_length = 0;
 
-    if(n->nb_children == 0) {
+    ChessPlayer_PossibleMoves(g, possible_moves, &possible_moves_length);
+    *visited += possible_moves_length;
 
-      ChessPlayer_Children(n);
-      nb_children += n->nb_children;
-
-    }
-
-    if(min_or_max == MIN) {
+    if(possible_moves_length == 0) return ChessGame_Valuation(g, player);
+    else if(min_or_max == MIN) {
 
       valuation = INF;
-      for(unsigned char i = 0; i < n->nb_children; i++) {
+      for(unsigned char i = 0; i < possible_moves_length; i++) {
 
-        res = ChessPlayer_AlphaBeta(limit, depth+1, n->children[i]->node, alpha, beta, MAX);
-        valuation = (valuation < res) ? valuation : res;
+        promotion = false;
+        piece = ChessGame_Move(g, possible_moves[i][0], possible_moves[i][1], -1, &promotion);
+
+        if((piece & MASK_PIECE) == KING) res = (MAX_DEPTH - depth) * ChessGame_Valuation(g, player);
+        else res = ChessPlayer_AlphaBeta(limit, depth+1, g, player, move, visited, alpha, beta, MAX);
+
+        ChessGame_Move(g, possible_moves[i][1], possible_moves[i][0], piece, &promotion);
+
+        if(res < valuation) {
+
+          valuation = res;
+          if(depth == 0) memcpy(move, possible_moves[i], 4*sizeof(unsigned char));
+
+        }
 
         if(alpha >= valuation) break;
-        beta = (beta < valuation) ? beta : valuation;
+        if(valuation < beta) beta = valuation;
 
       }
 
     } else {
 
       valuation = -INF;
-      for(unsigned char i = 0; i < n->nb_children; i++) {
+      for(unsigned char i = 0; i < possible_moves_length; i++) {
 
-        res = ChessPlayer_AlphaBeta(limit, depth+1, n->children[i]->node, alpha, beta, MIN);
-        valuation = (valuation > res) ? valuation : res;
+        promotion = false;
+        piece = ChessGame_Move(g, possible_moves[i][0], possible_moves[i][1], -1, &promotion);
+
+        if((piece & MASK_PIECE) == KING) res = (MAX_DEPTH - depth) * ChessGame_Valuation(g, player);
+        else res = ChessPlayer_AlphaBeta(limit, depth+1, g, player, move, visited, alpha, beta, MIN);
+
+        ChessGame_Move(g, possible_moves[i][1], possible_moves[i][0], piece, &promotion);
+
+        if(res > valuation) {
+
+          valuation = res;
+          if(depth == 0) memcpy(move, possible_moves[i], 4*sizeof(unsigned char));
+
+        }
 
         if(beta <= valuation) break;
-        alpha = (alpha > valuation) ? alpha : valuation;
+        if(valuation > alpha) alpha = valuation;
 
       }
 
     }
 
-  } else valuation = ChessGame_Valuation(n->game, player);
+    return valuation;
 
-  n->valuation = valuation;
-  return n->valuation;
+  } else return ChessGame_Valuation(g, player);
 
 }
 
 /**
 *
-*  Computes every children of a given node
-*  @TODO parallelisation
+*  PVS : parallelized alpha-beta
 *
 */
 
-void ChessPlayer_Children(node *parent) {
-  if(parent->nb_children == 0) {
+float ChessPlayer_PVSplit(unsigned char limit, unsigned char depth, game *g, unsigned char player, unsigned char move[2][2], unsigned long long int *visited, float alpha, float beta, unsigned char min_or_max) {
 
-    unsigned char row[2], possible_moves[POSSIBLE_MOVES_SIZE][2], possible_moves_length = 0;
-    game *g; node *n; struct child *c;
+  if(depth < limit) {
 
-    for(unsigned char i = 0; i<64; i++) {
+    float valuation, res; signed char piece; bool promotion;
+    unsigned char possible_moves[POSSIBLE_MOVES_SIZE][2][2], possible_moves_length = 0;
 
-      row[0] = i/8; row[1] = i%8;
-      if(parent->game->chessboard[row[0]][row[1]] != -1 && (parent->game->chessboard[row[0]][row[1]] & MASK_PLAYER) == parent->game->round_player) {
+    ChessPlayer_PossibleMoves(g, possible_moves, &possible_moves_length);
+    *visited += possible_moves_length;
 
-        possible_moves_length = 0;
+    if(possible_moves_length == 0) return ChessGame_Valuation(g, player);
+    else {
 
-        ChessGame_PossibleMoves(parent->game, row, possible_moves, &possible_moves_length);
+      unsigned char best_move[2][2], moves[POSSIBLE_MOVES_SIZE][2][2], moves_length, max, nb, nb_forks;
+      unsigned long long int fork_visited;
+      int pipes[NB_CORES][2], status;
+      float fork_alpha, fork_beta;
+      signed char child = -1;
+      pid_t pid[NB_CORES];
+      char message[256];
 
-        for(unsigned char j = 0; j<possible_moves_length; j++) {
+      promotion = false;
+      piece = ChessGame_Move(g, possible_moves[0][0], possible_moves[0][1], -1, &promotion);
+      valuation = ChessPlayer_PVSplit(limit, depth+1, g, player, move, visited, alpha, beta, (min_or_max == MIN) ? MAX : MIN);
+      ChessGame_Move(g, possible_moves[0][1], possible_moves[0][0], piece, &promotion);
 
-          g = malloc(sizeof(game));
-          memcpy(g, parent->game, sizeof(game));
+      if(depth == 0) memcpy(move, possible_moves[0], 4*sizeof(unsigned char));
 
-          n = malloc(sizeof(node));
-          n->game = g;
-          n->nb_children = 0;
-          n->valuation = (float) 0;
+      if(min_or_max == MIN) {
 
-          c = malloc(sizeof(struct child));
-          c->from[0] = row[0];
-          c->from[1] = row[1];
-          c->to[0] = possible_moves[j][0];
-          c->to[1] = possible_moves[j][1];
-          c->node = n;
+        if(valuation <= alpha) return valuation;
+        if(valuation < beta) beta = valuation;
 
-          parent->children[parent->nb_children] = c;
-          parent->nb_children++;
+      } else {
+
+        if(valuation >= beta) return valuation;
+        if(valuation > alpha) alpha = valuation;
+
+      }
+
+      memcpy(moves, possible_moves, (POSSIBLE_MOVES_SIZE)*4*sizeof(unsigned char));
+      moves_length = possible_moves_length - 1; possible_moves_length = 0;
+
+      for(int i = 0; i < moves_length; i++) memcpy(moves[i], moves[i+1], 4*sizeof(unsigned char));
+
+      if((nb = moves_length/NB_CORES) < 1) {
+        nb = 1;
+        nb_forks = moves_length;
+      } else nb_forks = NB_CORES;
+
+      for(unsigned char i = 0; i < nb_forks; i++) {
+
+        pipe(pipes[i]);
+
+        if((pid[i] = fork()) == 0) {
+
+          close(pipes[i][0]);
+          child = i;
+
+          if(i == nb_forks - 1 || (i+1)*nb > moves_length) max = moves_length;
+          else max = (i+1)*nb;
+
+          for(unsigned char j = i*nb; j < max; j++) {
+
+            memcpy(possible_moves[possible_moves_length], moves[j], POSSIBLE_MOVES_SIZE*4*sizeof(unsigned char));
+            possible_moves_length++;
+
+          }
+
+          *visited = 0;
+          break;
+
+        } else {
+
+          close(pipes[i][1]);
+          child = -1;
 
         }
 
       }
 
+      if(child > -1) {
+
+        if(min_or_max == MIN) {
+
+          valuation = INF;
+          for(unsigned char i = 0; i < possible_moves_length; i++) {
+
+            promotion = false;
+            piece = ChessGame_Move(g, possible_moves[i][0], possible_moves[i][1], -1, &promotion);
+
+            if((piece & MASK_PIECE) == KING) res = (MAX_DEPTH - depth) * ChessGame_Valuation(g, player);
+            else res = ChessPlayer_AlphaBeta(limit, depth+1, g, player, move, visited, alpha, beta, MAX);
+
+            ChessGame_Move(g, possible_moves[i][1], possible_moves[i][0], piece, &promotion);
+
+            if(res < valuation) {
+
+              valuation = res;
+              if(depth == 0) memcpy(move, possible_moves[i], 4*sizeof(unsigned char));
+
+            }
+
+            if(alpha >= valuation) break;
+            if(valuation < beta) beta = valuation;
+
+          }
+
+        } else {
+
+          valuation = -INF;
+          for(unsigned char i = 0; i < possible_moves_length; i++) {
+
+            promotion = false;
+            piece = ChessGame_Move(g, possible_moves[i][0], possible_moves[i][1], -1, &promotion);
+
+            if((piece & MASK_PIECE) == KING) res = (MAX_DEPTH - depth) * ChessGame_Valuation(g, player);
+            else res = ChessPlayer_AlphaBeta(limit, depth+1, g, player, move, visited, alpha, beta, MIN);
+
+            ChessGame_Move(g, possible_moves[i][1], possible_moves[i][0], piece, &promotion);
+
+            if(res > valuation) {
+
+              valuation = res;
+              if(depth == 0) memcpy(move, possible_moves[i], 4*sizeof(unsigned char));
+
+            }
+
+            if(beta <= valuation) break;
+            if(valuation > alpha) alpha = valuation;
+
+          }
+
+        }
+
+        sprintf(message, "%f | %llu | %f | %f | [%hhu, %hhu] -> [%hhu, %hhu]\n", valuation, *visited, alpha, beta, move[0][0], move[0][1], move[1][0], move[1][1]);
+        write(pipes[child][1], message, strlen(message)+1);
+
+        close(pipes[child][1]);
+        exit(EXIT_SUCCESS);
+
+      } else {
+
+        wait(&status);
+
+        for(unsigned char i = 0; i < NB_CORES; i++) {
+
+          read(pipes[i][0], message, sizeof(message));
+          sscanf(message, "%f | %llu | %f | %f | [%hhu, %hhu] -> [%hhu, %hhu]\n", &res, &fork_visited, &fork_alpha, &fork_beta, &best_move[0][0], &best_move[0][1], &best_move[1][0], &best_move[1][1]);
+
+          if(fork_alpha > alpha) alpha = fork_alpha;
+          if(fork_beta < beta) beta = fork_beta;
+
+          *visited += fork_visited;
+
+          if((min_or_max == MAX && res > valuation) || (min_or_max == MIN && res < valuation)) {
+
+            valuation = res;
+            memcpy(move, best_move, 4*sizeof(unsigned char));
+
+          }
+
+          close(pipes[i][0]);
+
+        }
+
+        return valuation;
+
+      }
+
     }
 
+  } else return ChessGame_Valuation(g, player);
+
+}
+
+/**
+*
+*
+*  Computes every possible move
+*
+*/
+
+void ChessPlayer_PossibleMoves(game *g, unsigned char possible_moves[POSSIBLE_MOVES_SIZE][2][2], unsigned char* possible_moves_length) {
+
+  unsigned char row[2];
+
+  for(unsigned char i = 0; i<64; i++) {
+
+    row[0] = i/8; row[1] = i%8;
+    if(g->chessboard[row[0]][row[1]] != -1 && (g->chessboard[row[0]][row[1]] & MASK_PLAYER) == g->round_player) ChessGame_PossibleMoves(g, row, possible_moves, possible_moves_length);
+
   }
+
 }

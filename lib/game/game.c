@@ -38,13 +38,42 @@ unsigned char ChessGame_Ennemy(unsigned char player) {
 *
 */
 
-void ChessGame_Move(game *g, unsigned char from[2], unsigned char to[2]) {
+signed char ChessGame_Move(game *g, unsigned char from[2], unsigned char to[2], signed char replacement, bool* promotion) {
 
-  g->chessboard[to[0]][to[1]] = g->chessboard[from[0]][from[1]];
-  g->chessboard[from[0]][from[1]] = -1;
+  signed char piece = g->chessboard[to[0]][to[1]], multiplier = ((g->chessboard[from[0]][from[1]] & MASK_PLAYER) == g->us) ? 1 : -1;
+
+  if((g->chessboard[from[0]][from[1]] & MASK_PIECE) == PAWN && (((g->chessboard[from[0]][from[1]] & MASK_PLAYER) == WHITE && to[0] == 7) || ((g->chessboard[from[0]][from[1]] & MASK_PLAYER) == BLACK && to[0] == 0))) {
+
+    g->chessboard[to[0]][to[1]] = QUEEN | (g->chessboard[from[0]][from[1]] & MASK_PLAYER);
+    *promotion = true;
+
+    /** update game valuation according to current move */
+    g->valuation += multiplier * (ChessGame_PieceValue(g->chessboard[to[0]][to[1]], to[0], to[1]) - ChessGame_PieceValue(g->chessboard[from[0]][from[1]], from[0], from[1]));
+
+  } else if(*promotion) {
+
+    g->chessboard[to[0]][to[1]] = PAWN | (g->chessboard[from[0]][from[1]] & MASK_PLAYER);
+
+    /** update game valuation according to current move */
+    g->valuation += multiplier * (ChessGame_PieceValue(g->chessboard[to[0]][to[1]], to[0], to[1]) - ChessGame_PieceValue(g->chessboard[from[0]][from[1]], from[0], from[1]));
+
+  } else {
+
+    g->chessboard[to[0]][to[1]] = g->chessboard[from[0]][from[1]];
+
+    /** update game valuation according to current move */
+    g->valuation += multiplier * (ChessGame_PieceValue(g->chessboard[from[0]][from[1]], to[0], to[1]) - ChessGame_PieceValue(g->chessboard[from[0]][from[1]], from[0], from[1]));
+
+  }
+
+  g->chessboard[from[0]][from[1]] = replacement;
+
+  /** update game valuation according to current move */
+  if(piece != -1) g->valuation += multiplier * ChessGame_PieceValue(piece, to[0], to[1]);
+  if(replacement != -1) g->valuation -= multiplier * ChessGame_PieceValue(replacement, from[0], from[1]);
 
   g->round_player = ChessGame_Ennemy(g->round_player);
-  g->round_end_time = time(NULL) + g->round_duration;
+  return piece;
 
 }
 
@@ -54,17 +83,24 @@ void ChessGame_Move(game *g, unsigned char from[2], unsigned char to[2]) {
 *
 */
 
-void ChessGame_FindPiece(game *g, signed char piece, unsigned char pos[2]) {
+bool ChessGame_FindPiece(game *g, signed char piece, unsigned char pos[2]) {
+
+  bool found = false;
+
   for(unsigned char i = 0; i<64; i++) {
     if(g->chessboard[i/8][i%8] == piece) {
 
       pos[0] = i/8;
       pos[1] = i%8;
 
+      found = true;
       break;
 
     }
   }
+
+  return found;
+
 }
 
 /**
@@ -73,7 +109,7 @@ void ChessGame_FindPiece(game *g, signed char piece, unsigned char pos[2]) {
 *
 */
 
-void ChessGame_PossibleMoves(game *g, unsigned char pos[2], unsigned char possible_moves[POSSIBLE_MOVES_SIZE][2], unsigned char *possible_moves_length) {
+void ChessGame_PossibleMoves(game *g, unsigned char pos[2], unsigned char possible_moves[POSSIBLE_MOVES_SIZE][2][2], unsigned char *possible_moves_length) {
 
   signed char piece = g->chessboard[pos[0]][pos[1]] & MASK_PIECE;
 
@@ -83,7 +119,6 @@ void ChessGame_PossibleMoves(game *g, unsigned char pos[2], unsigned char possib
   else if(piece == PAWN) ChessGame_Pawn_PossibleMoves(g, pos, possible_moves, possible_moves_length);
   else if(piece == QUEEN) ChessGame_Queen_PossibleMoves(g, pos, possible_moves, possible_moves_length);
   else if(piece == ROOK) ChessGame_Rook_PossibleMoves(g, pos, possible_moves, possible_moves_length);
-  else *possible_moves_length = 0;
 
 }
 
@@ -93,26 +128,28 @@ void ChessGame_PossibleMoves(game *g, unsigned char pos[2], unsigned char possib
 *
 */
 
-void ChessGame_RejectImpossibleMoves(game *g, unsigned char pos[2], unsigned char possible_moves[POSSIBLE_MOVES_SIZE][2], unsigned char *possible_moves_length) {
-  if(possible_moves_length != 0) {
+void ChessGame_RejectImpossibleMoves(game *g, unsigned char possible_moves[POSSIBLE_MOVES_SIZE][2][2], unsigned char *possible_moves_length) {
+  if(possible_moves_length > 0) {
 
-    unsigned char tmp[POSSIBLE_MOVES_SIZE][2], tmp_size = *possible_moves_length, player = g->chessboard[pos[0]][pos[1]] & MASK_PLAYER;
-    memcpy(tmp, possible_moves, *possible_moves_length*2*sizeof(unsigned char));
+    signed char piece; bool promotion;
+    unsigned char tmp[POSSIBLE_MOVES_SIZE][2][2], tmp_size = *possible_moves_length, player = g->round_player;
+
+    memcpy(tmp, possible_moves, POSSIBLE_MOVES_SIZE*4*sizeof(unsigned char));
     *possible_moves_length = 0;
-
-    game *clone = malloc(sizeof(game));
 
     for(unsigned char i = 0; i<tmp_size; i++) {
 
-      memcpy(clone, g, sizeof(game));
-      ChessGame_Move(clone, pos, tmp[i]);
+      promotion = false;
+      piece = ChessGame_Move(g, tmp[i][0], tmp[i][1], -1, &promotion);
 
-      if(ChessGame_Check(clone, player) == false) {
+      if(ChessGame_Check(g, player) == false) {
 
-        memcpy(possible_moves[*possible_moves_length], tmp[i], 2*sizeof(unsigned char));
+        memcpy(possible_moves[*possible_moves_length], tmp[i], 4*sizeof(unsigned char));
         (*possible_moves_length)++;
 
       }
+
+      ChessGame_Move(g, tmp[i][1], tmp[i][0], piece, &promotion);
 
     }
 
@@ -128,16 +165,18 @@ void ChessGame_RejectImpossibleMoves(game *g, unsigned char pos[2], unsigned cha
 bool ChessGame_InDanger(game *g, unsigned char pos[2]) {
 
   bool in_danger = false;
-  unsigned char row[2], possible_moves[POSSIBLE_MOVES_SIZE][2], possible_moves_length = 0, piece_color = g->chessboard[pos[0]][pos[1]] & MASK_PLAYER;
+  unsigned char row[2], possible_moves[POSSIBLE_MOVES_SIZE][2][2], possible_moves_length = 0, piece_color = g->chessboard[pos[0]][pos[1]] & MASK_PLAYER;
 
   for(unsigned char i = 0; i<64; i++) {
 
     row[0] = i/8; row[1] = i%8;
     if(g->chessboard[row[0]][row[1]] != -1 && (g->chessboard[row[0]][row[1]] & MASK_PLAYER) != piece_color) {
 
+      possible_moves_length = 0;
       ChessGame_PossibleMoves(g, row, possible_moves, &possible_moves_length);
+
       for(unsigned char x = 0; x<possible_moves_length; x++) {
-        if(memcmp(possible_moves[x], pos, sizeof(possible_moves[x])) == 0) {
+        if(memcmp(&(possible_moves[x][1]), pos, 2*sizeof(unsigned char)) == 0) {
           in_danger = true;
           break;
         }
@@ -163,9 +202,9 @@ bool ChessGame_InDanger(game *g, unsigned char pos[2]) {
 bool ChessGame_Check(game *g, unsigned char player) {
 
   unsigned char pos[2];
-  ChessGame_FindPiece(g, player|KING, pos);
 
-  return ChessGame_InDanger(g, pos);
+  if(ChessGame_FindPiece(g, player|KING, pos)) return ChessGame_InDanger(g, pos);
+  else return true;
 
 }
 
@@ -179,7 +218,7 @@ bool ChessGame_Checkmate(game *g, unsigned char player) {
 
   if(ChessGame_Check(g, player)) {
 
-    unsigned char row[2], possible_moves[POSSIBLE_MOVES_SIZE][2], possible_moves_length;
+    unsigned char row[2], possible_moves[POSSIBLE_MOVES_SIZE][2][2], possible_moves_length;
     bool no_possible_moves = true;
 
     for(unsigned char i = 0; i<64; i++) {
@@ -188,6 +227,8 @@ bool ChessGame_Checkmate(game *g, unsigned char player) {
       if(g->chessboard[row[0]][row[1]] != -1 && (g->chessboard[row[0]][row[1]] & MASK_PLAYER) == player) {
 
         ChessGame_PossibleMoves(g, row, possible_moves, &possible_moves_length);
+        ChessGame_RejectImpossibleMoves(g, possible_moves, &possible_moves_length);
+
         if(possible_moves_length > 0) {
 
           no_possible_moves = false;
@@ -216,7 +257,7 @@ bool ChessGame_PAT(game *g, unsigned char player) {
 
   if(!ChessGame_Check(g, player)) {
 
-    unsigned char row[2], possible_moves[POSSIBLE_MOVES_SIZE][2], possible_moves_length;
+    unsigned char row[2], possible_moves[POSSIBLE_MOVES_SIZE][2][2], possible_moves_length;
     bool no_possible_moves = true;
 
     for(unsigned char i = 0; i<64; i++) {
@@ -225,6 +266,8 @@ bool ChessGame_PAT(game *g, unsigned char player) {
       if(g->chessboard[row[0]][row[1]] != -1 && (g->chessboard[row[0]][row[1]] & MASK_PLAYER) == player) {
 
         ChessGame_PossibleMoves(g, row, possible_moves, &possible_moves_length);
+        ChessGame_RejectImpossibleMoves(g, possible_moves, &possible_moves_length);
+
         if(possible_moves_length > 0) {
 
           no_possible_moves = false;
@@ -254,87 +297,83 @@ bool ChessGame_Draw(game *g, unsigned char player) {
 
 /**
 *
+*  Give the piece value of piece at pos line,col
+*
+*/
+
+int ChessGame_PieceValue(signed char piece, unsigned char line, unsigned char col) {
+
+  static const int piece_value[6][64] = {BISHOP_VALUES, KING_VALUES, KNIGHT_VALUES, PAWN_VALUES, QUEEN_VALUES, ROOK_VALUES};
+
+  signed char row = (line * 8) + col;
+  if((piece & MASK_PLAYER) == WHITE) row = 63 - row;
+
+  return piece_value[piece & MASK_PIECE][row];
+
+}
+
+/**
+*
+*  Give the material valuation of player on game
+*
+*/
+
+float ChessGame_Material(game *g, unsigned char player) {
+
+  signed char piece; float material = 0;
+
+  for(unsigned char i = 0, line = 0, col = 0; i<64; i++) {
+
+    line = i/8; col = i%8;
+    piece = g->chessboard[line][col];
+
+    if(piece != -1 && (piece & MASK_PLAYER) == player) material += ChessGame_PieceValue(piece, line, col);
+
+  }
+
+  return material;
+
+}
+
+/**
+*
+*  Give the material balance for player p
+*
+**/
+
+float ChessGame_MaterialBalance(game *g, unsigned char player) {
+
+  signed char piece; float balance = 0;
+
+  for(unsigned char i = 0, line = 0, col = 0; i<64; i++) {
+
+    line = i/8; col = i%8;
+    piece = g->chessboard[line][col];
+
+    if(piece != -1) {
+
+      if((piece & MASK_PLAYER) == player) balance += ChessGame_PieceValue(piece, line, col);
+      else balance -= ChessGame_PieceValue(piece, line, col);
+
+    }
+
+  }
+
+  return balance;
+
+}
+
+/**
+*
 *  Evaluation of a game for player p
 *
 */
 
 float ChessGame_Valuation(game *g, unsigned char player) {
 
-  static const unsigned char piece_value[6] = {BISHOP_VALUE, KING_VALUE, KNIGHT_VALUE, PAWN_VALUE, QUEEN_VALUE, ROOK_VALUE};
-  unsigned char piece_number[6] = {0,0,0,0,0,0};
+  //return ChessGame_MaterialBalance(g, player);
 
-  float valuation = 0;
-  unsigned char ennemy = ChessGame_Ennemy(player), row[2], possible_moves[POSSIBLE_MOVES_SIZE][2], possible_moves_length, material;
-  signed char piece;
-
-  /** Check/Checkmate Bonus/Malus */
-
-  /*if(ChessGame_Check(g, player)) {
-
-    if(ChessGame_Checkmate(g, player)) valuation -= CHECKMATE;
-    valuation -= CHECK;
-
-  }
-
-  if(ChessGame_Check(g, ennemy)) {
-
-    if(ChessGame_Checkmate(g, ennemy)) valuation += CHECKMATE;
-    valuation += CHECK;
-
-  }*/
-
-  for(unsigned char i = 0, line = i/8, col = i%8; i<64; i++) {
-
-    piece = g->chessboard[line][col];
-    if(piece != -1 && (piece & MASK_PLAYER) == player) {
-
-      row[0] = line; row[1] = col;
-
-      piece &= MASK_PIECE;
-      piece_number[piece]++;
-
-      /** material value */
-      material += piece_value[piece];
-
-      /** Bonuses */
-
-      if(piece != PAWN) {
-
-        possible_moves_length = 0;
-        /*ChessGame_PossibleMoves(g, row, possible_moves, &possible_moves_length);*/
-
-        valuation += BONUS_MOBILITY*possible_moves_length*piece_value[piece];
-
-      } else if(col == 3 || col == 4) valuation += BONUS_CENTRAL_PAWN;
-
-      /** Maluses */
-
-      if(ChessGame_InDanger(g, row)) valuation -= MALUS_PIECE_IN_DANGER*piece_value[piece];
-
-      if(piece == PAWN && (col == 0 || col == 7)) valuation -= MALUS_ROOK_PAWN;
-      else if(piece == BISHOP && ((player == WHITE && line == 0) || (player == BLACK && line == 7)) && (col == 2 || col == 5)) valuation -= MALUS_RETURNING_BISHOP;
-
-    }
-  }
-
-  /** Bonuses */
-
-  if(piece_number[BISHOP] == 2) valuation += BONUS_BISHOP_PAIR;
-  valuation = BONUS_LESS_PAWN_KNIGHT*piece_number[KNIGHT] * (1 + (1 - (piece_number[PAWN]/8)));
-  valuation = BONUS_LESS_PAWN_ROOK*piece_number[KNIGHT] * (1 + (1 - (piece_number[PAWN]/8)));
-
-
-  /** Maluses */
-
-  if(piece_number[KNIGHT] == 2) valuation -= MALUS_KNIGHT_PAIR;
-  if(piece_number[ROOK] == 2) valuation -= MALUS_ROOK_PAIR;
-  if(piece_number[PAWN] == 0) {
-
-    valuation -= MALUS_NO_PAWN;
-    if(material <= 4*piece_value[PAWN]) valuation -= MALUS_INSUFFICIENT_MATERIAL;
-
-  }
-
-  return valuation+material;
+  if(g->valuation == -1) g->valuation = ChessGame_MaterialBalance(g, player);
+  return g->valuation;
 
 }

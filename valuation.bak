@@ -1,0 +1,77 @@
+//static const unsigned char piece_value[6] = {BISHOP_VALUE, KING_VALUE, KNIGHT_VALUE, PAWN_VALUE, QUEEN_VALUE, ROOK_VALUE};
+unsigned char piece_number[6] = {0,0,0,0,0,0};
+
+float valuation = 0;
+unsigned char ennemy = ChessGame_Ennemy(player), row[2], possible_moves[POSSIBLE_MOVES_SIZE][2], possible_moves_length, material;
+signed char piece;
+
+/** Check/Checkmate Bonus/Malus */
+
+/*if(ChessGame_Check(g, player)) {
+
+  if(ChessGame_Checkmate(g, player)) valuation -= CHECKMATE;
+  valuation -= CHECK;
+
+}
+
+if(ChessGame_Check(g, ennemy)) {
+
+  if(ChessGame_Checkmate(g, ennemy)) valuation += CHECKMATE;
+  valuation += CHECK;
+
+}*/
+
+for(unsigned char i = 0, line = 0, col = 0; i<64; i++) {
+
+  line = i/8; col = i%8;
+  piece = g->chessboard[line][col];
+  if(piece != -1 && (piece & MASK_PLAYER) == player) {
+
+    row[0] = line; row[1] = col;
+
+    piece &= MASK_PIECE;
+    piece_number[piece]++;
+
+    /** material value */
+    material += piece_value[piece];
+
+    /** Bonuses */
+
+    if(piece != PAWN) {
+
+      possible_moves_length = 0;
+      /*ChessGame_PossibleMoves(g, row, possible_moves, &possible_moves_length);*/
+
+      valuation += BONUS_MOBILITY*possible_moves_length*piece_value[piece];
+
+    } else if(col == 3 || col == 4) valuation += BONUS_CENTRAL_PAWN;
+
+    /** Maluses */
+
+    if(ChessGame_InDanger(g, row)) valuation -= MALUS_PIECE_IN_DANGER*piece_value[piece];
+
+    if(piece == PAWN && (col == 0 || col == 7)) valuation -= MALUS_ROOK_PAWN;
+    else if(piece == BISHOP && ((player == WHITE && line == 0) || (player == BLACK && line == 7)) && (col == 2 || col == 5)) valuation -= MALUS_RETURNING_BISHOP;
+
+  }
+}
+
+/** Bonuses */
+
+if(piece_number[BISHOP] == 2) valuation += BONUS_BISHOP_PAIR;
+valuation = BONUS_LESS_PAWN_KNIGHT*piece_number[KNIGHT] * (1 + (1 - (piece_number[PAWN]/8)));
+valuation = BONUS_LESS_PAWN_ROOK*piece_number[KNIGHT] * (1 + (1 - (piece_number[PAWN]/8)));
+
+
+/** Maluses */
+
+if(piece_number[KNIGHT] == 2) valuation -= MALUS_KNIGHT_PAIR;
+if(piece_number[ROOK] == 2) valuation -= MALUS_ROOK_PAIR;
+if(piece_number[PAWN] == 0) {
+
+  valuation -= MALUS_NO_PAWN;
+  if(material <= 4*piece_value[PAWN]) valuation -= MALUS_INSUFFICIENT_MATERIAL;
+
+}
+
+return valuation+material;
