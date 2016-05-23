@@ -13,28 +13,30 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <pthread.h>
+#include <signal.h>
 #include <curl/curl.h>
+
+#include "./chess.h"
 
 #include "./lib/curl/curl.h"
 #include "./lib/cJSON/cJSON.h"
 
+#include "./lib/watchdog/watchdog.h"
 #include "./lib/game/game.h"
 #include "./lib/output/output.h"
 #include "./lib/player/player.h"
 
-/** Constants */
-
-#define API_HOST "chess.ruby.labs.adrien-thebault.fr"
-#define API_PORT "80"
-
 /** **/
+
 int main(int argc, char* argv[]) {
 
   curl_global_init(CURL_GLOBAL_DEFAULT);
 
-  unsigned char game_id, player, algorithm, move[2][2]; char from[2], to[2]; game g; response r; bool was_my_round = true;
+  unsigned char game_id, player, algorithm; char from[2], to[2]; game g; response r; bool was_my_round = true;
   char url[MAX_URL_LENGTH]; CURL* curl = curl_easy_init(); CURLcode res; /** curl */
   cJSON *json, *round, *chessboard, *line; /** cJSON */
+  pthread_t watchdog_thread;
 
   if (argc != 7) printf(ERROR("Usage: ./chess.rb --game [game-id] --player [white|black] --algorithm [alphabeta|mtdf|pvs]"));
   else {
@@ -86,15 +88,14 @@ int main(int argc, char* argv[]) {
 
           printf(SUCCESS("My round!"));
 
-          ChessPlayer_Play(&g, player, move, algorithm);
+          pthread_create(&watchdog_thread, NULL, watchdog, (void*)&g);
+          ChessPlayer_Play(&g, player, g.move, algorithm);
+          pthread_join(watchdog_thread, NULL);
 
-          /*while(!finished && g.round_end_time-time(NULL) > 5) sleep(1);
-          finished = false;*/
+          sprintf(from, "%c%hhu", 97+g.move[0][1], g.move[0][0]+1);
+          sprintf(to, "%c%hhu", 97+g.move[1][1], g.move[1][0]+1);
 
-          sprintf(from, "%c%hhu", 97+move[0][1], move[0][0]+1);
-          sprintf(to, "%c%hhu", 97+move[1][1], move[1][0]+1);
-
-          if((g.chessboard[move[0][0]][move[0][1]] & MASK_PIECE) == PAWN && ((player == WHITE && move[1][0] == 7) || (player == BLACK && move[1][0] == 0))) sprintf(url, "http://%s:%s/api/move/%d/%s/%s=queen", API_HOST, API_PORT, game_id, from, to);
+          if((g.chessboard[g.move[0][0]][g.move[0][1]] & MASK_PIECE) == PAWN && ((player == WHITE && g.move[1][0] == 7) || (player == BLACK && g.move[1][0] == 0))) sprintf(url, "http://%s:%s/api/move/%d/%s/%s=queen", API_HOST, API_PORT, game_id, from, to);
           else sprintf(url, "http://%s:%s/api/move/%d/%s/%s", API_HOST, API_PORT, game_id, from, to);
 
           curl_easy_setopt(curl, CURLOPT_URL, url);

@@ -13,12 +13,18 @@
 #include <time.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
 #include "../game/game.h"
 #include "../output/output.h"
 #include "./player.h"
+
+unsigned char m[2][2];
+pid_t pid[NB_CORES];
+bool killed;
 
 /**
 *
@@ -28,9 +34,32 @@
 
 void ChessPlayer_Play(game *g, unsigned char player, unsigned char move[2][2], unsigned char algorithm) {
 
+  killed = false;
   if(algorithm == ALPHABETA || algorithm == MTDF || algorithm == PVS) ChessPlayer_ID(g, move, player, algorithm);
 
 }
+
+/**
+*
+*  Stops playing
+*
+*/
+
+void ChessPlayer_Stop(unsigned char move[2][2]) {
+
+  memcpy(move, m, 4*sizeof(unsigned char));
+  killed = true;
+
+  for(int i = 0; i < NB_CORES; i++) {
+
+    if(pid[i] == -1) break;
+    kill(pid[i], SIGKILL);
+
+  }
+
+
+}
+
 
 /**
 *
@@ -53,7 +82,7 @@ void ChessPlayer_ID(game *g, unsigned char move[2][2], unsigned char p, unsigned
   printf(INFO("Iterative deepening %s with MAX_DEPTH = %d"), algo, MAX_DEPTH);
   printf(INFO("Actual board has a valuation of %.2f"), valuation);
 
-  while(depth <= MAX_DEPTH && g->round_end_time > time(NULL)) {
+  while(depth <= MAX_DEPTH && (g->round_end_time - time(NULL)) > 5) {
 
     printf(INFO("|\tTime left : %hhus"), (unsigned char)(g->round_end_time-time(NULL)));
     printf(INFO("|\tDepth : %hhu"), depth);
@@ -78,6 +107,9 @@ void ChessPlayer_ID(game *g, unsigned char move[2][2], unsigned char p, unsigned
       valuation = ChessPlayer_PVSplit(depth, 0, g, p, move, &visited, -INF, INF, MAX);
 
     } else valuation = ChessPlayer_MTDF(g, p, valuation, depth, move, &visited);
+
+    if(killed) return;
+    memcpy(m, move, 4*sizeof(unsigned char));
 
     printf(INFO("|\t|\tWent through %llu possibilities"), visited);
     printf(INFO("|\tBest move has a valuation of %.2f"), valuation);
@@ -108,6 +140,8 @@ float ChessPlayer_MTDF(game* g, unsigned char player, float f, unsigned char dep
     if(f < beta) upper = f;
     else lower = f;
 
+    if(killed) return -1;
+
   }
 
   return f;
@@ -122,6 +156,7 @@ float ChessPlayer_MTDF(game* g, unsigned char player, float f, unsigned char dep
 
 float ChessPlayer_AlphaBeta(unsigned char limit, unsigned char depth, game *g, unsigned char player, unsigned char move[2][2], unsigned long long int *visited, float alpha, float beta, unsigned char min_or_max) {
 
+  if(killed) return -1;
   if(depth < limit) {
 
     float valuation, res; signed char piece; bool promotion;
@@ -143,6 +178,7 @@ float ChessPlayer_AlphaBeta(unsigned char limit, unsigned char depth, game *g, u
         else res = ChessPlayer_AlphaBeta(limit, depth+1, g, player, move, visited, alpha, beta, MAX);
 
         ChessGame_Move(g, possible_moves[i][1], possible_moves[i][0], piece, &promotion);
+        //if((res > CHECKMATE || res < -CHECKMATE) && ChessGame_Draw(g, g->round_player)) res = 0;
 
         if(res < valuation) {
 
@@ -168,6 +204,7 @@ float ChessPlayer_AlphaBeta(unsigned char limit, unsigned char depth, game *g, u
         else res = ChessPlayer_AlphaBeta(limit, depth+1, g, player, move, visited, alpha, beta, MIN);
 
         ChessGame_Move(g, possible_moves[i][1], possible_moves[i][0], piece, &promotion);
+        //if((res > CHECKMATE || res < -CHECKMATE) && ChessGame_Draw(g, g->round_player)) res = 0;
 
         if(res > valuation) {
 
@@ -197,6 +234,7 @@ float ChessPlayer_AlphaBeta(unsigned char limit, unsigned char depth, game *g, u
 
 float ChessPlayer_PVSplit(unsigned char limit, unsigned char depth, game *g, unsigned char player, unsigned char move[2][2], unsigned long long int *visited, float alpha, float beta, unsigned char min_or_max) {
 
+  if(killed) return -1;
   if(depth < limit) {
 
     float valuation, res; signed char piece; bool promotion;
@@ -213,12 +251,14 @@ float ChessPlayer_PVSplit(unsigned char limit, unsigned char depth, game *g, uns
       int pipes[NB_CORES][2], status;
       float fork_alpha, fork_beta;
       signed char child = -1;
-      pid_t pid[NB_CORES];
       char message[256];
 
       promotion = false;
       piece = ChessGame_Move(g, possible_moves[0][0], possible_moves[0][1], -1, &promotion);
-      valuation = ChessPlayer_PVSplit(limit, depth+1, g, player, move, visited, alpha, beta, (min_or_max == MIN) ? MAX : MIN);
+
+      if((piece & MASK_PIECE) == KING) valuation = (MAX_DEPTH - depth) * ChessGame_Valuation(g, player);
+      else valuation = ChessPlayer_PVSplit(limit, depth+1, g, player, move, visited, alpha, beta, (min_or_max == MIN) ? MAX : MIN);
+
       ChessGame_Move(g, possible_moves[0][1], possible_moves[0][0], piece, &promotion);
 
       if(depth == 0) memcpy(move, possible_moves[0], 4*sizeof(unsigned char));
@@ -245,6 +285,7 @@ float ChessPlayer_PVSplit(unsigned char limit, unsigned char depth, game *g, uns
         nb_forks = moves_length;
       } else nb_forks = NB_CORES;
 
+      for(int i = 0; i < NB_CORES; i++) pid[i] = -1;
       for(unsigned char i = 0; i < nb_forks; i++) {
 
         pipe(pipes[i]);
@@ -340,7 +381,7 @@ float ChessPlayer_PVSplit(unsigned char limit, unsigned char depth, game *g, uns
 
         wait(&status);
 
-        for(unsigned char i = 0; i < NB_CORES; i++) {
+        for(unsigned char i = 0; i < nb_forks; i++) {
 
           read(pipes[i][0], message, sizeof(message));
           sscanf(message, "%f | %llu | %f | %f | [%hhu, %hhu] -> [%hhu, %hhu]\n", &res, &fork_visited, &fork_alpha, &fork_beta, &best_move[0][0], &best_move[0][1], &best_move[1][0], &best_move[1][1]);
@@ -353,7 +394,7 @@ float ChessPlayer_PVSplit(unsigned char limit, unsigned char depth, game *g, uns
           if((min_or_max == MAX && res > valuation) || (min_or_max == MIN && res < valuation)) {
 
             valuation = res;
-            memcpy(move, best_move, 4*sizeof(unsigned char));
+            if(depth == 0) memcpy(move, best_move, 4*sizeof(unsigned char));
 
           }
 

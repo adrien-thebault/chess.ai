@@ -210,39 +210,52 @@ bool ChessGame_Check(game *g, unsigned char player) {
 
 /**
 *
+*  Is player mate ?
+*
+*/
+
+bool ChessGame_Mate(game *g, unsigned char player) {
+
+  unsigned char row[2], possible_moves[POSSIBLE_MOVES_SIZE][2][2], possible_moves_length, n = 0;
+  signed char piece; bool promotion;
+
+  for(unsigned char i = 0; i<64; i++) {
+
+    row[0] = i/8; row[1] = i%8;
+    if(g->chessboard[row[0]][row[1]] != -1 && (g->chessboard[row[0]][row[1]] & MASK_PLAYER) == player) {
+
+      ChessGame_PossibleMoves(g, row, possible_moves, &possible_moves_length);
+      for(int j = 0; j < possible_moves_length; j++) {
+
+        promotion = false;
+        piece = ChessGame_Move(g, possible_moves[j][0], possible_moves[j][1], -1, &promotion);
+
+        if(!ChessGame_Check(g, player)) n++;
+        ChessGame_Move(g, possible_moves[j][1], possible_moves[j][0], piece, &promotion);
+
+        if(n > 0) break;
+
+      }
+
+      if(n > 0) break;
+
+    }
+
+  }
+
+  return (n == 0);
+
+}
+
+/**
+*
 *  Is player checkmate?
 *
 */
 
 bool ChessGame_Checkmate(game *g, unsigned char player) {
 
-  if(ChessGame_Check(g, player)) {
-
-    unsigned char row[2], possible_moves[POSSIBLE_MOVES_SIZE][2][2], possible_moves_length;
-    bool no_possible_moves = true;
-
-    for(unsigned char i = 0; i<64; i++) {
-
-      row[0] = i/8; row[1] = i%8;
-      if(g->chessboard[row[0]][row[1]] != -1 && (g->chessboard[row[0]][row[1]] & MASK_PLAYER) == player) {
-
-        ChessGame_PossibleMoves(g, row, possible_moves, &possible_moves_length);
-        ChessGame_RejectImpossibleMoves(g, possible_moves, &possible_moves_length);
-
-        if(possible_moves_length > 0) {
-
-          no_possible_moves = false;
-          break;
-
-        }
-
-      }
-
-    }
-
-    return no_possible_moves;
-
-  } else return false;
+  return ChessGame_Check(g, player) && ChessGame_Mate(g, player);
 
 }
 
@@ -255,34 +268,8 @@ bool ChessGame_Checkmate(game *g, unsigned char player) {
 
 bool ChessGame_PAT(game *g, unsigned char player) {
 
-  if(!ChessGame_Check(g, player)) {
-
-    unsigned char row[2], possible_moves[POSSIBLE_MOVES_SIZE][2][2], possible_moves_length;
-    bool no_possible_moves = true;
-
-    for(unsigned char i = 0; i<64; i++) {
-
-      row[0] = i/8; row[1] = i%8;
-      if(g->chessboard[row[0]][row[1]] != -1 && (g->chessboard[row[0]][row[1]] & MASK_PLAYER) == player) {
-
-        ChessGame_PossibleMoves(g, row, possible_moves, &possible_moves_length);
-        ChessGame_RejectImpossibleMoves(g, possible_moves, &possible_moves_length);
-
-        if(possible_moves_length > 0) {
-
-          no_possible_moves = false;
-          break;
-
-        }
-
-      }
-
-    }
-
-    return no_possible_moves;
-
-  } else return false;
-
+  return !ChessGame_Check(g, player) && ChessGame_Mate(g, player);
+  
 }
 
 /**

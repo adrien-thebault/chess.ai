@@ -17,7 +17,6 @@
 *
 */
 
-// pos = 7, 2
 void ChessGame_Bishop_PossibleMoves(game *g, unsigned char pos[2], unsigned char possible_moves[POSSIBLE_MOVES_SIZE][2][2], unsigned char *possible_moves_length) {
 
   unsigned char color = g->chessboard[pos[0]][pos[1]] & MASK_PLAYER;

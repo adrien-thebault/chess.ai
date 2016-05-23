@@ -27,15 +27,6 @@
 
   /** Pieces values */
 
-  // OLD valuations
-  // #define CENTIPAWN     1
-  // #define BISHOP_VALUE  350
-  // #define KING_VALUE    10000
-  // #define KNIGHT_VALUE  350
-  // #define PAWN_VALUE    100
-  // #define QUEEN_VALUE   1000
-  // #define ROOK_VALUE    500
-
   #define BISHOP_VALUES { 797, 824, 817, 808, 808, 817, 824, 797, \
                           814, 841, 834, 825, 825, 834, 841, 814, \
                           818, 845, 838, 829, 829, 838, 845, 818, \
@@ -90,35 +81,16 @@
                           1258, 1263, 1268, 1272, 1272, 1268, 1263, 1258, \
                           1258, 1263, 1268, 1272, 1272, 1268, 1263, 1258 }
 
-  /** Bonuses */
-
-  #define BONUS_BISHOP_PAIR       50
-  #define BONUS_PAWN_SHIELD       200
-  #define BONUS_CENTRAL_PAWN      50
-  #define BONUS_LESS_PAWN_KNIGHT  175
-  #define BONUS_LESS_PAWN_ROOK    250
-  #define BONUS_MOBILITY          0.05
-
-  /** Maluses */
-
-  #define MALUS_ROOK_PAIR               50
-  #define MALUS_KNIGHT_PAIR             50
-  #define MALUS_RETURNING_BISHOP        50
-  #define MALUS_NO_PAWN                 50
-  #define MALUS_ROOK_PAWN               50
-  #define MALUS_PIECE_IN_DANGER         3
-  #define MALUS_INSUFFICIENT_MATERIAL   300
-
   /** Positions */
 
-  #define CHECK     300
-  #define CHECKMATE 99999
+  #define CHECKMATE 30000
 
 /** Types */
 
 typedef struct {
 
   unsigned char id;
+  unsigned char move[2][2];
 
   unsigned char round_player;
   unsigned char round_duration;
@@ -140,6 +112,7 @@ void ChessGame_PossibleMoves(game *g, unsigned char pos[2], unsigned char possib
 void ChessGame_RejectImpossibleMoves(game *g, unsigned char possible_moves[POSSIBLE_MOVES_SIZE][2][2], unsigned char *possible_moves_length);
 bool ChessGame_InDanger(game *g, unsigned char pos[2]);
 bool ChessGame_Check(game *g, unsigned char player);
+bool ChessGame_Mate(game *g, unsigned char player);
 bool ChessGame_Checkmate(game *g, unsigned char player);
 bool ChessGame_PAT(game *g, unsigned char player);
 bool ChessGame_Draw(game *g, unsigned char player);
