@@ -75,7 +75,7 @@ void* watchdog(void* current) {
     sleep(1);
 
     printf(WARNING("|"));
-    printf(WARNING("|\tAin't nobody got time for that shit, sending last best move, bitch."));
+    printf(WARNING("|\tNo time left, sending last best move."));
     printf(WARNING("|\tMove : %c%hhu -> %c%hhu"), m[0][1]+97, m[0][0]+1, m[1][1]+97, m[1][0]+1);
     printf(WARNING("|"));
 
